@@ -56,7 +56,15 @@ impl WopsApp {
                         .color(p.muted),
                 );
                 ui.add_space(10.0);
-                info_row(ui, p, "Resolution", "1920 × 1080");
+                info_row(
+                    ui,
+                    p,
+                    "Resolution",
+                    &format!(
+                        "{} × {}",
+                        self.state.settings.canvas_width, self.state.settings.canvas_height
+                    ),
+                );
                 info_row(ui, p, "Frame rate", "60 FPS");
                 info_row(ui, p, "Encoder", "Auto");
                 info_row(ui, p, "Audio", "48 kHz");

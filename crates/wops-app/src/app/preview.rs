@@ -2,8 +2,6 @@ use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
 use super::{WopsApp, widgets::fit_aspect};
 
-const PREVIEW_ASPECT_RATIO: f32 = 16.0 / 9.0;
-
 impl WopsApp {
     pub(super) fn preview(&self, root: &mut egui::Ui) {
         let p = self.palette();
@@ -31,11 +29,22 @@ impl WopsApp {
                 });
                 ui.add_space(12.0);
 
-                let preview_size = fit_aspect(ui.available_size(), PREVIEW_ASPECT_RATIO);
+                let aspect_ratio = self.compositor.as_ref().map_or(16.0 / 9.0, |compositor| {
+                    compositor.canvas_size().aspect_ratio()
+                });
+                let preview_size = fit_aspect(ui.available_size(), aspect_ratio);
                 ui.vertical_centered(|ui| {
                     let (rect, _) = ui.allocate_exact_size(preview_size, egui::Sense::hover());
                     ui.painter()
                         .rect_filled(rect, 3.0, Color32::from_rgb(3, 5, 8));
+                    if let Some(texture_id) = self.preview_texture {
+                        ui.painter().image(
+                            texture_id,
+                            rect,
+                            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
                     ui.painter().rect_stroke(
                         rect,
                         3.0,
@@ -43,21 +52,23 @@ impl WopsApp {
                         egui::StrokeKind::Inside,
                     );
 
-                    let center = rect.center();
-                    ui.painter().text(
-                        center - Vec2::new(0.0, 8.0),
-                        egui::Align2::CENTER_CENTER,
-                        "No source selected",
-                        egui::FontId::proportional(14.0),
-                        p.text,
-                    );
-                    ui.painter().text(
-                        center + Vec2::new(0.0, 14.0),
-                        egui::Align2::CENTER_CENTER,
-                        "Add a source to begin",
-                        egui::FontId::proportional(11.0),
-                        p.muted,
-                    );
+                    if self.preview_texture.is_none() {
+                        let center = rect.center();
+                        ui.painter().text(
+                            center - Vec2::new(0.0, 8.0),
+                            egui::Align2::CENTER_CENTER,
+                            "GPU preview unavailable",
+                            egui::FontId::proportional(14.0),
+                            p.text,
+                        );
+                        ui.painter().text(
+                            center + Vec2::new(0.0, 14.0),
+                            egui::Align2::CENTER_CENTER,
+                            "WOPS requires the wgpu renderer",
+                            egui::FontId::proportional(11.0),
+                            p.muted,
+                        );
+                    }
                 });
             });
     }

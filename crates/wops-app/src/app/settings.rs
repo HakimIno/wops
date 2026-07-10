@@ -1,5 +1,6 @@
 use eframe::egui::{self, RichText, Stroke};
 use wops_core::ThemePreference;
+use wops_render::CanvasSize;
 
 use super::{
     WopsApp,
@@ -15,6 +16,7 @@ impl WopsApp {
         let p = self.palette();
         let mut open = self.show_settings;
         let mut changed_theme = None;
+        let mut requested_canvas = None;
         egui::Window::new("Studio settings")
             .open(&mut open)
             .collapsible(false)
@@ -36,7 +38,17 @@ impl WopsApp {
                         .color(p.muted),
                 );
                 ui.add_space(18.0);
-                settings_grid(ui, &mut self.state.settings.theme, &mut changed_theme, p);
+                settings_grid(
+                    ui,
+                    &mut self.state.settings.theme,
+                    &mut changed_theme,
+                    CanvasSize {
+                        width: self.state.settings.canvas_width,
+                        height: self.state.settings.canvas_height,
+                    },
+                    &mut requested_canvas,
+                    p,
+                );
                 ui.add_space(18.0);
                 ui.label(
                     RichText::new(
@@ -52,6 +64,9 @@ impl WopsApp {
             apply_theme(ctx, theme);
             self.save_settings();
         }
+        if let Some(canvas_size) = requested_canvas {
+            self.resize_canvas(canvas_size);
+        }
     }
 }
 
@@ -59,6 +74,8 @@ fn settings_grid(
     ui: &mut egui::Ui,
     selected_theme: &mut ThemePreference,
     changed_theme: &mut Option<ThemePreference>,
+    canvas_size: CanvasSize,
+    requested_canvas: &mut Option<CanvasSize>,
     p: Palette,
 ) {
     egui::Grid::new("general_settings")
@@ -75,6 +92,33 @@ fn settings_grid(
                             .changed()
                         {
                             *changed_theme = Some(theme);
+                        }
+                    }
+                });
+            ui.end_row();
+
+            ui.label(RichText::new("Canvas").color(p.text));
+            egui::ComboBox::from_id_salt("canvas_resolution")
+                .selected_text(format!("{} × {}", canvas_size.width, canvas_size.height))
+                .show_ui(ui, |ui| {
+                    for size in [
+                        CanvasSize {
+                            width: 1280,
+                            height: 720,
+                        },
+                        CanvasSize::FULL_HD,
+                        CanvasSize {
+                            width: 2560,
+                            height: 1440,
+                        },
+                    ] {
+                        let selected = canvas_size == size;
+                        if ui
+                            .selectable_label(selected, format!("{} × {}", size.width, size.height))
+                            .clicked()
+                            && !selected
+                        {
+                            *requested_canvas = Some(size);
                         }
                     }
                 });

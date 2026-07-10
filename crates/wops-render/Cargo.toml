@@ -1,0 +1,13 @@
+[package]
+name = "wops-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+image.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+

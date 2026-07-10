@@ -20,6 +20,8 @@ pub struct Settings {
     pub theme: ThemePreference,
     pub window_width: f32,
     pub window_height: f32,
+    pub canvas_width: u32,
+    pub canvas_height: u32,
     pub language: String,
 }
 
@@ -29,6 +31,8 @@ impl Default for Settings {
             theme: ThemePreference::Dark,
             window_width: 1280.0,
             window_height: 800.0,
+            canvas_width: 1920,
+            canvas_height: 1080,
             language: "en".to_owned(),
         }
     }
@@ -131,6 +135,8 @@ mod tests {
             theme: ThemePreference::Light,
             window_width: 1440.0,
             window_height: 900.0,
+            canvas_width: 1280,
+            canvas_height: 720,
             language: "th".to_owned(),
         };
 
