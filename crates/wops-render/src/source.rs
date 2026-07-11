@@ -9,6 +9,14 @@ pub(crate) struct SourcePixels {
 }
 
 impl SourcePixels {
+    pub fn rgba(width: u32, height: u32, rgba: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            rgba,
+        }
+    }
+
     pub fn color(color: [u8; 4]) -> Self {
         let mut rgba = color.to_vec();
         premultiply_alpha(&mut rgba);

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
 
 use bytemuck::{Pod, Zeroable};
 use glam::Vec2;
@@ -42,6 +42,10 @@ pub enum RenderError {
     InvalidCanvasSize { width: u32, height: u32 },
     #[error("could not load image source: {0}")]
     Image(#[from] image::ImageError),
+    #[error("render layer {0} does not exist")]
+    LayerNotFound(usize),
+    #[error("RGBA frame has invalid stride or data length")]
+    InvalidFrame,
 }
 
 #[repr(C)]
@@ -247,6 +251,72 @@ impl Compositor {
         Ok(self.add_pixels(device, queue, pixels, transform, SourceKind::Static))
     }
 
+    pub fn add_rgba_source(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        stride: usize,
+        transform: Transform2D,
+    ) -> Result<usize, RenderError> {
+        let pixels = packed_rgba(width, height, rgba, stride)?;
+        Ok(self.add_pixels(
+            device,
+            queue,
+            SourcePixels::rgba(width, height, pixels.into_owned()),
+            transform,
+            SourceKind::Static,
+        ))
+    }
+
+    pub fn update_rgba_source(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layer_index: usize,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        stride: usize,
+    ) -> Result<(), RenderError> {
+        let pixels = packed_rgba(width, height, rgba, stride)?;
+        let layer = self
+            .layers
+            .get_mut(layer_index)
+            .ok_or(RenderError::LayerNotFound(layer_index))?;
+        let new_size = CanvasSize { width, height };
+        if layer.source_size == new_size {
+            write_texture_bytes(queue, &layer.texture, width, height, &pixels);
+            return Ok(());
+        }
+
+        let texture = create_source_texture(device, new_size);
+        write_texture_bytes(queue, &texture, width, height, &pixels);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = create_layer_bind_group(
+            device,
+            &self.bind_group_layout,
+            &self.sampler,
+            &view,
+            &layer.uniform_buffer,
+        );
+        layer.texture = texture;
+        layer._view = view;
+        layer.bind_group = bind_group;
+        layer.source_size = new_size;
+        Ok(())
+    }
+
+    pub fn remove_layer(&mut self, layer_index: usize) -> Result<(), RenderError> {
+        if layer_index >= self.layers.len() {
+            return Err(RenderError::LayerNotFound(layer_index));
+        }
+        self.layers.remove(layer_index);
+        Ok(())
+    }
+
     pub fn update_animated_sources(&mut self, queue: &wgpu::Queue, elapsed_seconds: f32) {
         for layer in &mut self.layers {
             if matches!(layer.source_kind, SourceKind::AnimatedGradient) {
@@ -329,24 +399,13 @@ impl Compositor {
             contents: bytemuck::bytes_of(&uniform),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("wops layer bind group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = create_layer_bind_group(
+            device,
+            &self.bind_group_layout,
+            &self.sampler,
+            &view,
+            &uniform_buffer,
+        );
         self.layers.push(RenderLayer {
             texture,
             _view: view,
@@ -360,6 +419,54 @@ impl Compositor {
         });
         self.layers.len() - 1
     }
+}
+
+fn create_layer_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    view: &wgpu::TextureView,
+    uniform_buffer: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("wops layer bind group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniform_buffer.as_entire_binding(),
+            },
+        ],
+    })
+}
+
+fn packed_rgba<'a>(
+    width: u32,
+    height: u32,
+    rgba: &'a [u8],
+    stride: usize,
+) -> Result<Cow<'a, [u8]>, RenderError> {
+    let row_len = width as usize * 4;
+    let required = stride.saturating_mul(height as usize);
+    if width == 0 || height == 0 || stride < row_len || rgba.len() < required {
+        return Err(RenderError::InvalidFrame);
+    }
+    if stride == row_len {
+        return Ok(Cow::Borrowed(&rgba[..row_len * height as usize]));
+    }
+    let mut packed = Vec::with_capacity(row_len * height as usize);
+    for row in 0..height as usize {
+        packed.extend_from_slice(&rgba[row * stride..row * stride + row_len]);
+    }
+    Ok(Cow::Owned(packed))
 }
 
 fn create_canvas(device: &wgpu::Device, size: CanvasSize) -> (wgpu::Texture, wgpu::TextureView) {
@@ -401,6 +508,16 @@ fn create_source_texture(device: &wgpu::Device, size: CanvasSize) -> wgpu::Textu
 }
 
 fn write_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, pixels: &SourcePixels) {
+    write_texture_bytes(queue, texture, pixels.width, pixels.height, &pixels.rgba);
+}
+
+fn write_texture_bytes(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) {
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
@@ -408,15 +525,15 @@ fn write_texture(queue: &wgpu::Queue, texture: &wgpu::Texture, pixels: &SourcePi
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        &pixels.rgba,
+        rgba,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(pixels.width * 4),
-            rows_per_image: Some(pixels.height),
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
         },
         wgpu::Extent3d {
-            width: pixels.width,
-            height: pixels.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
     );
@@ -477,5 +594,21 @@ mod tests {
     #[test]
     fn full_hd_aspect_ratio_is_sixteen_by_nine() {
         assert!((CanvasSize::FULL_HD.aspect_ratio() - 16.0 / 9.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn rgba_packing_removes_row_padding() {
+        let input = [1, 2, 3, 4, 99, 99, 5, 6, 7, 8, 99, 99];
+        let packed = packed_rgba(1, 2, &input, 6).unwrap();
+        assert_eq!(&*packed, &[1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn tightly_packed_rgba_is_borrowed() {
+        let input = [1, 2, 3, 4];
+        assert!(matches!(
+            packed_rgba(1, 1, &input, 4).unwrap(),
+            Cow::Borrowed(_)
+        ));
     }
 }

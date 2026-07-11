@@ -1,0 +1,4 @@
+[env]
+BINDGEN_EXTRA_CLANG_ARGS = "-isystem /usr/lib/clang/20/include -isystem /usr/lib/clang/21/include -isystem /usr/lib/clang/22/include -isystem /usr/lib/clang/23/include -isystem /usr/lib/clang/24/include"
+LIBCLANG_PATH = "/usr/lib64"
+PKG_CONFIG_PATH = { value = ".native/usr/lib64/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig", relative = true }

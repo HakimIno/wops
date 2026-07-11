@@ -1,3 +1,4 @@
+mod capture;
 mod controls;
 mod dock;
 mod header;
@@ -15,6 +16,8 @@ use tracing::{debug, error, info, warn};
 use wops_core::{AppState, CoreChannels, Event, Settings, core_channels};
 use wops_render::{CanvasSize, Compositor, Transform2D};
 
+use capture::ActiveCapture;
+
 pub struct WopsApp {
     state: AppState,
     channels: CoreChannels,
@@ -27,6 +30,8 @@ pub struct WopsApp {
     preview_texture: Option<egui::TextureId>,
     render_started_at: Instant,
     last_render_at: Instant,
+    captures: Vec<ActiveCapture>,
+    next_source_id: u64,
 }
 
 impl WopsApp {
@@ -73,6 +78,8 @@ impl WopsApp {
             preview_texture,
             render_started_at: Instant::now(),
             last_render_at: Instant::now(),
+            captures: Vec::new(),
+            next_source_id: 1,
         }
     }
 
@@ -126,6 +133,7 @@ impl WopsApp {
 impl eframe::App for WopsApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_core_events();
+        self.poll_capture_sources();
         let frame_interval = Duration::from_secs_f32(1.0 / 60.0);
         let elapsed = self.last_render_at.elapsed();
         if elapsed < frame_interval {

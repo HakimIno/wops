@@ -7,9 +7,35 @@ pub struct Scene {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    #[default]
+    Screen,
+    Window,
+    Webcam,
+    Image,
+    Color,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceStatus {
+    #[default]
+    Starting,
+    Active,
+    Lost,
+    Error,
+    Stopped,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Source {
+    pub id: u64,
     pub name: String,
+    pub kind: SourceKind,
+    pub status: SourceStatus,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

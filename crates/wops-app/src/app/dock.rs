@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
-use wops_core::Scene;
+use wops_capture::{WebcamDevice, WebcamMode, webcam};
+use wops_core::{Scene, SourceKind, SourceStatus};
 
 use super::{
     WopsApp,
@@ -106,7 +107,11 @@ impl WopsApp {
         });
     }
 
-    fn sources_section(&self, ui: &mut egui::Ui, p: Palette) {
+    fn sources_section(&mut self, ui: &mut egui::Ui, p: Palette) {
+        let mut visibility_change = None;
+        let mut remove_source = None;
+        let mut add_portal = None;
+        let mut add_webcam: Option<(WebcamDevice, WebcamMode)> = None;
         dock_section(ui, p, Icon::Video, "Sources", |ui| {
             if self.state.sources.is_empty() {
                 empty_state(
@@ -116,16 +121,145 @@ impl WopsApp {
                     "Add a camera, display, or media file",
                 );
             } else {
-                for source in &self.state.sources {
-                    ui.label(RichText::new(&source.name).color(p.text));
+                for source in &mut self.state.sources {
+                    egui::Frame::new()
+                        .fill(p.panel_raised)
+                        .corner_radius(3)
+                        .inner_margin(7)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                let mut visible = source.visible;
+                                if ui.checkbox(&mut visible, "").changed() {
+                                    visibility_change = Some((source.id, visible));
+                                }
+                                status_dot(ui, source_status_color(source.status, p));
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(&source.name).strong().color(p.text));
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} · {}",
+                                            source_kind_label(source.kind),
+                                            source_status_label(source.status)
+                                        ))
+                                        .size(9.0)
+                                        .color(p.muted),
+                                    );
+                                });
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .small_button("×")
+                                            .on_hover_text("Remove source")
+                                            .clicked()
+                                        {
+                                            remove_source = Some(source.id);
+                                        }
+                                    },
+                                );
+                            });
+                        });
                 }
             }
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                icon_action(ui, p, Icon::Add, "Add source")
-                    .on_hover_text("Source capture arrives in phase 3");
+                ui.menu_button(
+                    RichText::new("+  Add source").size(11.0).color(p.text),
+                    |ui| {
+                        if ui.button("Display capture").clicked() {
+                            add_portal = Some(SourceKind::Screen);
+                            ui.close();
+                        }
+                        if ui.button("Window capture").clicked() {
+                            add_portal = Some(SourceKind::Window);
+                            ui.close();
+                        }
+                        let webcams = webcam::devices();
+                        ui.menu_button("Webcam", |ui| {
+                            if webcams.is_empty() {
+                                ui.add_enabled(false, egui::Label::new("No webcam detected"));
+                            }
+                            for device in &webcams {
+                                ui.menu_button(&device.name, |ui| {
+                                    let mut modes = webcam::modes(&device.path).unwrap_or_default();
+                                    modes.retain(|mode| {
+                                        matches!(&mode.format, b"YUYV" | b"MJPG")
+                                            && mode.width <= 3840
+                                            && mode.height <= 2160
+                                    });
+                                    modes.sort_by_key(|mode| (mode.width * mode.height, mode.fps));
+                                    modes.dedup_by_key(|mode| (mode.width, mode.height, mode.fps));
+                                    if modes.is_empty() {
+                                        ui.add_enabled(
+                                            false,
+                                            egui::Label::new("No supported YUYV/MJPEG modes"),
+                                        );
+                                    }
+                                    for mode in modes.into_iter().rev().take(16) {
+                                        if ui
+                                            .button(format!(
+                                                "{} × {} @ {} FPS",
+                                                mode.width, mode.height, mode.fps
+                                            ))
+                                            .clicked()
+                                        {
+                                            add_webcam = Some((device.clone(), mode));
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                        ui.separator();
+                        ui.add_enabled(false, egui::Button::new("Image"));
+                        ui.add_enabled(false, egui::Button::new("Color"));
+                    },
+                );
             });
         });
+
+        if let Some((source_id, visible)) = visibility_change {
+            self.set_source_visibility(source_id, visible);
+        }
+        if let Some(source_id) = remove_source {
+            self.remove_source(source_id);
+        }
+        if let Some(kind) = add_portal {
+            self.add_portal_source(kind);
+        }
+        if let Some((device, mode)) = add_webcam {
+            self.add_webcam_source(device, mode);
+        }
+    }
+}
+
+fn source_kind_label(kind: SourceKind) -> &'static str {
+    match kind {
+        SourceKind::Screen => "Display",
+        SourceKind::Window => "Window",
+        SourceKind::Webcam => "Webcam",
+        SourceKind::Image => "Image",
+        SourceKind::Color => "Color",
+    }
+}
+
+fn source_status_label(status: SourceStatus) -> &'static str {
+    match status {
+        SourceStatus::Starting => "Starting",
+        SourceStatus::Active => "Active",
+        SourceStatus::Lost => "Source lost",
+        SourceStatus::Error => "Error",
+        SourceStatus::Stopped => "Stopped",
+    }
+}
+
+fn source_status_color(status: SourceStatus, p: Palette) -> Color32 {
+    match status {
+        SourceStatus::Active => p.success,
+        SourceStatus::Starting => p.accent,
+        SourceStatus::Lost | SourceStatus::Error => p.danger,
+        SourceStatus::Stopped => p.muted,
     }
 }
 

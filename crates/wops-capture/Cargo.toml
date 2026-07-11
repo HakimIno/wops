@@ -1,0 +1,15 @@
+[package]
+name = "wops-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ashpd.workspace = true
+crossbeam-channel.workspace = true
+futures-lite.workspace = true
+image.workspace = true
+pipewire.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+v4l.workspace = true

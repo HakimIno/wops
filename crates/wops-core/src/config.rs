@@ -22,6 +22,8 @@ pub struct Settings {
     pub window_height: f32,
     pub canvas_width: u32,
     pub canvas_height: u32,
+    pub screen_restore_token: Option<String>,
+    pub window_restore_token: Option<String>,
     pub language: String,
 }
 
@@ -33,6 +35,8 @@ impl Default for Settings {
             window_height: 800.0,
             canvas_width: 1920,
             canvas_height: 1080,
+            screen_restore_token: None,
+            window_restore_token: None,
             language: "en".to_owned(),
         }
     }
@@ -137,6 +141,8 @@ mod tests {
             window_height: 900.0,
             canvas_width: 1280,
             canvas_height: 720,
+            screen_restore_token: Some("screen-token".to_owned()),
+            window_restore_token: None,
             language: "th".to_owned(),
         };
 

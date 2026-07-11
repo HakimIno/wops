@@ -6,4 +6,4 @@ mod state;
 
 pub use config::{ConfigError, Settings, ThemePreference};
 pub use protocol::{Command, CoreChannels, Event, FrameStats, core_channels};
-pub use state::{AppState, Scene, Source};
+pub use state::{AppState, Scene, Source, SourceKind, SourceStatus};
